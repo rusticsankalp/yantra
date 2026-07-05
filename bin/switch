@@ -16,19 +16,20 @@ YANTRA_CONFIG="${YANTRA_CONFIG:-${HOME}/.config/yantra}"
 _get_entries() {
   # Try yukti first
   if command -v yukti &>/dev/null; then
-    yukti ls --json 2>/dev/null | python3 - 2>/dev/null <<'PYEOF'
+  yukti ls --json 2>/dev/null | python3 -c '
 import json, sys
 
 data = json.load(sys.stdin)
-for inst in data.get('instances', []):
-    iid   = inst.get('id', '?')
-    ctx   = inst.get('context_type', '')
-    label = inst.get('label', '')
-    color = inst.get('color', 'default')
-    status = 'running' if inst.get('running') else '·'
-    dot    = '●' if inst.get('running') else '·'
-    print(f"{iid}\t[{ctx}] {label}\t{dot} {status}\t{color}")
-PYEOF
+instances = data.get("instances", {})
+for iid, inst in instances.items():
+  ctx = inst.get("context") or inst.get("context_type", "")
+  label = inst.get("label", iid)
+  color = inst.get("color", "default")
+  running = inst.get("status") == "running"
+  status = "running" if running else "idle"
+  dot = "●" if running else "·"
+  print(f"{iid}\t[{ctx}] {label}\t{dot} {status}\t{color}")
+' 2>/dev/null
     return
   fi
 
@@ -42,7 +43,7 @@ try:
     with open(sys.argv[1]) as f:
         reg = yaml.safe_load(f)
     for iid, inst in (reg.get('instances') or {}).items():
-        ctx   = inst.get('context_type', '')
+      ctx   = inst.get('context') or inst.get('context_type', '')
         label = inst.get('label', iid)
         color = inst.get('color', 'default')
         print(f"{iid}\t[{ctx}] {label}\t· idle\t{color}")

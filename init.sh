@@ -50,20 +50,20 @@ import json, sys, os
 try:
     data = json.load(sys.stdin)
     cwd = os.environ.get('PWD', os.getcwd())
-    for inst in data.get('instances', []):
-        root = inst.get('local_path', '')
+    for name, inst in (data.get('instances') or {}).items():
+      root = inst.get('local_path', '')
         if root and (cwd == root or cwd.startswith(root + '/')):
-            print(inst['id'])
+        print(name)
             break
 except Exception:
     pass
 " 2>/dev/null || true)"
   fi
 
-  # 2. Detect running yantra tmux sessions (sessions named "yantra-<id>")
+    # 2. Detect running yantra tmux sessions
   if command -v tmux &>/dev/null; then
     running="$(tmux list-sessions -F '#{session_name}' 2>/dev/null \
-      | grep -E '^yantra-' | head -1 | sed 's/^yantra-//' || true)"
+      | head -1 || true)"
   fi
 
   # 3. Last used instance

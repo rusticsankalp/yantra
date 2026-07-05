@@ -63,7 +63,7 @@ def emit(k, v):
 
 emit('YANTRA_INSTANCE',     name)
 emit('YANTRA_LABEL',        inst.get('label', name))
-emit('YANTRA_CONTEXT_TYPE', inst.get('context_type', ''))
+emit('YANTRA_CONTEXT_TYPE', inst.get('context') or inst.get('context_type', ''))
 emit('PROJECT_ROOT',        inst.get('local_path', ''))
 emit('YANTRA_COLOR',        inst.get('color', 'default'))
 
@@ -146,7 +146,7 @@ yantra_load_instance_env() {
 # ── Activation ────────────────────────────────────────────────────────────────
 yantra_activate_instance() {
   local instance_name="${1:?yantra_activate_instance requires instance name}"
-  local session_name="yantra-${instance_name}"
+  local session_name="${instance_name}"
 
   printf "  yantra: activating %s\n" "${instance_name}"
 
@@ -183,7 +183,7 @@ yantra_activate_instance() {
 # Like activate but always starts a fresh session (kills existing first).
 yantra_start_fresh() {
   local instance_name="${1:?yantra_start_fresh requires instance name}"
-  local session_name="yantra-${instance_name}"
+  local session_name="${instance_name}"
 
   yantra_get_instance_info  "${instance_name}" || return 1
   yantra_load_context_env   "${YANTRA_CONTEXT_TYPE:-}"
