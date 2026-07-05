@@ -196,10 +196,16 @@ current shell. If you opened a new terminal, re-source it first.
 
 ```bash
 yukti --help
-# Expected: usage line + list of subcommands including: go, ls, where, up, down,
+# Expected: usage line + list of subcommands including: go, exit, ls, where, up, down,
 #           restart, build, ps, run, check, log, note, set, get, add, init, install, version
 ```
 - [ ] `yukti --help` shows a subcommand list without errors
+
+```bash
+yukti exit --help
+# Expected: shows optional instance argument and describes session teardown
+```
+- [ ] `yukti exit --help` shows the optional instance argument
 
 ```bash
 yukti version

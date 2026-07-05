@@ -65,8 +65,18 @@ def load_services(context_type):
     try:
         with open(path) as f:
             data = yaml.safe_load(f) or {}
-        # Accept both {services: {...}} and flat {svc: ...}
-        return data.get("services", data)
+        # Accept both {services: {...}} and {services: [{id: ...}, ...]}.
+        services = data.get("services", data)
+        if isinstance(services, list):
+            normalized = {}
+            for service in services:
+                if not isinstance(service, dict):
+                    continue
+                service_id = service.get("id")
+                if service_id:
+                    normalized[service_id] = service
+            return normalized
+        return services
     except Exception as e:
         print(f"Error parsing services.yml: {e}", file=sys.stderr)
         sys.exit(2)

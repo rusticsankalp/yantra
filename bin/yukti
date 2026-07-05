@@ -239,16 +239,66 @@ def cmd_go(args):
     else:
         yantra_home = get_yantra_home()
         context_type = instance.get("context", "")
-        session_yml = Path(yantra_home) / "contexts" / context_type / "session.yml"
-        if session_yml.exists():
+        tmuxp_yml = Path(yantra_home) / "contexts" / context_type / "tmuxp.yml"
+        legacy_session_yml = Path(yantra_home) / "contexts" / context_type / "session.yml"
+        session_config = tmuxp_yml if tmuxp_yml.exists() else legacy_session_yml
+        if session_config.exists():
             env = os.environ.copy()
             env["YANTRA_INSTANCE"] = instance_name
             env["YANTRA_HOME"] = yantra_home
             env["YANTRA_CONTEXT_TYPE"] = context_type
-            os.execvpe("tmuxp", ["tmuxp", "load", str(session_yml)], env)
+            os.execvpe("tmuxp", ["tmuxp", "load", str(session_config), "--yes"], env)
         else:
             # Bare tmux session as fallback
             os.execvp("tmux", ["tmux", "new-session", "-s", instance_name])
+
+
+def cmd_exit(args):
+    """Stop managed services for an instance and kill its tmux session."""
+    instance_name = args.instance or os.environ.get("YANTRA_INSTANCE")
+    if not instance_name:
+        print("No instance specified and YANTRA_INSTANCE not set", file=sys.stderr)
+        sys.exit(1)
+
+    registry = load_registry()
+    instance = get_instance(instance_name, registry)
+    if not instance:
+        print(f"Instance '{instance_name}' not found in registry", file=sys.stderr)
+        sys.exit(1)
+
+    context_type = instance.get("context", "")
+    running = get_running_sessions()
+    if instance_name not in running:
+        print(f"Session '{instance_name}' is not running")
+        return
+
+    services_path = Path(get_yantra_home()) / "contexts" / context_type / "services.yml"
+    if services_path.exists():
+        env = os.environ.copy()
+        env["YANTRA_INSTANCE"] = instance_name
+        env["YANTRA_HOME"] = get_yantra_home()
+        env["YANTRA_CONFIG"] = get_yantra_config()
+
+        result = subprocess.run(
+            [
+                "python3",
+                str(Path(get_yantra_home()) / "impl" / "python" / "orchestrate.py"),
+                "stop",
+                "--context",
+                context_type,
+                "--all",
+            ],
+            env=env,
+        )
+        if result.returncode != 0:
+            sys.exit(result.returncode)
+
+    result = subprocess.run(["tmux", "kill-session", "-t", instance_name])
+    if result.returncode != 0:
+        print(f"Failed to kill session '{instance_name}'", file=sys.stderr)
+        sys.exit(result.returncode)
+
+    print(f"Exited session '{instance_name}'")
 
 
 def cmd_ls(args):
@@ -650,6 +700,10 @@ def build_parser():
     p.add_argument("instance", nargs="?", help="Instance name (fzf picker if omitted)")
     p.add_argument("--last", action="store_true", help="Re-attach to last active instance")
 
+    # exit
+    p = sub.add_parser("exit", help="Stop an instance's services and kill its tmux session")
+    p.add_argument("instance", nargs="?", help="Instance name (default: YANTRA_INSTANCE)")
+
     # ls
     p = sub.add_parser("ls", help="List all registered instances")
     p.add_argument("--json", action="store_true")
@@ -747,6 +801,7 @@ def build_parser():
 
 DISPATCH = {
     "go": cmd_go,
+    "exit": cmd_exit,
     "ls": cmd_ls,
     "where": cmd_where,
     "up": cmd_up,

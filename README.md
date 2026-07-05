@@ -207,6 +207,26 @@ yukti where
 
 ---
 
+### yukti exit
+
+Stop the current instance's managed services and kill its tmux session.
+
+**Usage:** `yukti exit [instance]`
+
+| Option | Description |
+|--------|-------------|
+| `instance` | Instance name to exit (optional; defaults to `YANTRA_INSTANCE`) |
+
+**What it does:** If the instance's context has a `services.yml`, yantra first runs a graceful stop across managed services, then kills the tmux session for that instance. If the session is already stopped, it exits without error.
+
+**Examples:**
+```bash
+yukti exit                  # exit the currently active instance
+yukti exit wscs-dev         # stop services and remove the wscs-dev session
+```
+
+---
+
 ### yukti up
 
 Start services for the current instance.
