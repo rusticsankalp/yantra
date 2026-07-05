@@ -84,7 +84,7 @@ _check_tool() {
   fi
 }
 
-_check_tool tmux    "2.6" "brew install tmux  OR  apt-get install tmux"
+_check_tool tmux    "" "brew install tmux  OR  apt-get install tmux"
 _check_tool tmuxp   ""    "pip3 install tmuxp"
 _check_tool fzf     ""    "brew install fzf   OR  apt-get install fzf"
 _check_tool zoxide  ""    "brew install zoxide  OR  curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | bash"
