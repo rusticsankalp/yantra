@@ -1,0 +1,54 @@
+# yantra/.gitignore
+#
+# NOTE: secrets/, sessions/, and audit/ live under ~/.config/yantra/ —
+# they are outside the repo and need no entries here.
+# bin/* chmod permissions are set by install.sh at setup time.
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+*.egg
+.eggs/
+
+# Go binaries (keep .go source; ignore compiled output)
+impl/go/orchestrate
+impl/go/watch-logs
+impl/go/healthcheck
+impl/go/*.test
+impl/go/coverage.out
+
+# Root-level .env files (never commit secrets here)
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V4
+.Trashes
+
+# Editor artifacts
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.direnv/
+
+# mise local overrides (machine-specific; .mise.toml is committed)
+.mise.local.toml
+
+# Test/coverage output
+.coverage
+htmlcov/
+.pytest_cache/
+*.log

@@ -1,0 +1,67 @@
+version: '3'
+
+includes:
+  base:
+    taskfile: "${YANTRA_HOME}/contexts/_base/Taskfile.base.yml"
+    optional: false
+
+vars:
+  R:
+    sh: echo "ssh ${REMOTE_HOST}"
+
+tasks:
+  check:cluster:
+    desc: Check node + pod health
+    cmds: [yukti check cluster-check]
+
+  check:apps:
+    desc: Check deployment rollout status
+    cmds: [yukti check app-check]
+
+  check:all:
+    desc: Run all health checks
+    cmds:
+      - task: check:cluster
+      - task: check:apps
+
+  watch:pods:
+    desc: Start pod event watcher
+    cmds: [yukti run pod-watch]
+
+  watch:logs:
+    desc: Start stern log tailing
+    cmds: [yukti run stern-apps]
+
+  k9s:
+    desc: Open k9s dashboard
+    cmds: [yukti run k9s]
+
+  proxmox:
+    desc: Open Proxmox shell
+    cmds: [yukti run proxmox-shell]
+
+  tf:plan:
+    desc: Terraform plan (safe, no changes)
+    cmds: [yukti run tf-plan]
+
+  tf:apply:
+    desc: "Terraform apply (LIVE — requires confirmation)"
+    cmds: [yukti run tf-apply]
+
+  ansible:
+    desc: "Run Ansible playbook. Usage: task ansible PLAYBOOK=site"
+    requires:
+      vars: [PLAYBOOK]
+    cmds: ["yukti run ansible-run --var PLAYBOOK={{.PLAYBOOK}}"]
+
+  rollout:
+    desc: "Restart a deployment. Usage: task rollout DEPLOY=myapp NS=apps"
+    requires:
+      vars: [DEPLOY, NS]
+    cmds: ["yukti run rollout-restart --var DEPLOY={{.DEPLOY}} --var NS={{.NS}}"]
+
+  sync:kubeconfig:
+    desc: Pull kubeconfig from remote for local kubectl
+    cmds:
+      - scp ${REMOTE_HOST}:~/.kube/config ~/.kube/vidheya.config
+      - echo "export KUBECONFIG=~/.kube/vidheya.config"

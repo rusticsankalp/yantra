@@ -1,0 +1,20 @@
+version: 1
+ops:
+  - id: pod-watch
+    kind: watcher
+    desc: Watch k8s events
+    cmd: kubectl get events -A -w
+    remote: "${REMOTE_HOST}"
+    restart_on_exit: true
+
+  - id: cluster-check
+    kind: check
+    desc: Cluster health check
+    cmd: kubectl get nodes && kubectl get pods -A | grep -v Running
+    remote: "${REMOTE_HOST}"
+
+  - id: remote-shell
+    kind: shell
+    desc: Remote shell
+    cmd: "$SHELL"
+    remote: "${REMOTE_HOST}"

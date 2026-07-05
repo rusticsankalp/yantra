@@ -1,0 +1,57 @@
+version: 1
+patterns:
+  - match: "terraform apply*"
+    summary: "Infrastructure change applied"
+    blast_radius: high
+
+  - match: "terraform destroy*"
+    summary: "Infrastructure destroyed"
+    blast_radius: high
+
+  - match: "kubectl delete*"
+    summary: "Kubernetes resource deleted"
+    blast_radius: high
+
+  - match: "kubectl rollout restart*"
+    summary: "Kubernetes deployment rollout restart"
+    blast_radius: medium
+
+  - match: "kubectl apply*"
+    summary: "Kubernetes resource applied"
+    blast_radius: medium
+
+  - match: "ansible-playbook*"
+    summary: "Ansible playbook executed"
+    blast_radius: high
+
+  - match: "yukti build*"
+    summary: "Service rebuild triggered"
+    blast_radius: medium
+
+  - match: "yukti down*"
+    summary: "Services stopped"
+    blast_radius: medium
+
+  - match: "yukti restart*"
+    summary: "Services restarted"
+    blast_radius: low
+
+  - match: "git push --force*"
+    summary: "Force push to remote"
+    blast_radius: high
+
+  - match: "git rebase*"
+    summary: "Git rebase"
+    blast_radius: medium
+
+  - match: "rm -rf*"
+    summary: "Recursive delete"
+    blast_radius: high
+
+  - match: "docker-compose down*"
+    summary: "Docker services stopped"
+    blast_radius: medium
+
+  - match: "yukti set AUTH_TOKEN*"
+    summary: "Auth token updated"
+    blast_radius: low

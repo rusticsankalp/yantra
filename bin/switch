@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# yantra/bin/switch — fzf instance picker
+# Prints chosen instance name to stdout. Does NOT activate.
+# Caller is responsible for activating (e.g. yantra_activate_instance).
+# Exit 0: instance name printed. Exit 1: user cancelled.
+
+set -euo pipefail
+
+YANTRA_HOME="${YANTRA_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+YANTRA_CONFIG="${YANTRA_CONFIG:-${HOME}/.config/yantra}"
+
+# ── Gather instance list ──────────────────────────────────────────────────────
+# Format: "id    [ctx_type] label    status  color"
+# Prefer yukti --json; fall back to python3 YAML parse; fall back to grep
+
+_get_entries() {
+  # Try yukti first
+  if command -v yukti &>/dev/null; then
+    yukti ls --json 2>/dev/null | python3 - 2>/dev/null <<'PYEOF'
+import json, sys
+
+data = json.load(sys.stdin)
+for inst in data.get('instances', []):
+    iid   = inst.get('id', '?')
+    ctx   = inst.get('context_type', '')
+    label = inst.get('label', '')
+    color = inst.get('color', 'default')
+    status = 'running' if inst.get('running') else '·'
+    dot    = '●' if inst.get('running') else '·'
+    print(f"{iid}\t[{ctx}] {label}\t{dot} {status}\t{color}")
+PYEOF
+    return
+  fi
+
+  # Fallback: parse registry.yml with python3
+  local registry="${YANTRA_CONFIG}/registry.yml"
+  if [[ -f "${registry}" ]]; then
+    python3 - "${registry}" 2>/dev/null <<'PYEOF'
+import sys
+try:
+    import yaml
+    with open(sys.argv[1]) as f:
+        reg = yaml.safe_load(f)
+    for iid, inst in (reg.get('instances') or {}).items():
+        ctx   = inst.get('context_type', '')
+        label = inst.get('label', iid)
+        color = inst.get('color', 'default')
+        print(f"{iid}\t[{ctx}] {label}\t· idle\t{color}")
+except Exception as e:
+    print(f"error\t[parse error]\t· ?\tdefault", file=sys.stderr)
+PYEOF
+    return
+  fi
+
+  # Last-resort: grep instance names from registry
+  if [[ -f "${YANTRA_CONFIG}/registry.yml" ]]; then
+    grep -E '^\s{2}\w' "${YANTRA_CONFIG}/registry.yml" | sed 's/[: ]//g' | \
+      awk '{print $1"\t[unknown]\t· ?\tdefault"}'
+    return
+  fi
+
+  echo "No instances found. Run: yukti add --context <type>" >&2
+  exit 1
+}
+
+# ── Color escape for fzf --ansi ───────────────────────────────────────────────
+_color_label() {
+  local color="$1" text="$2"
+  case "${color}" in
+    green)   printf "\033[38;5;28m%s\033[0m" "${text}" ;;
+    yellow)  printf "\033[38;5;136m%s\033[0m" "${text}" ;;
+    blue)    printf "\033[38;5;18m%s\033[0m" "${text}" ;;
+    red)     printf "\033[38;5;52m%s\033[0m" "${text}" ;;
+    cyan)    printf "\033[38;5;23m%s\033[0m" "${text}" ;;
+    magenta) printf "\033[38;5;53m%s\033[0m" "${text}" ;;
+    orange)  printf "\033[38;5;130m%s\033[0m" "${text}" ;;
+    *)       printf "%s" "${text}" ;;
+  esac
+}
+
+# ── Build fzf input ───────────────────────────────────────────────────────────
+_entries="$(_get_entries 2>/dev/null || true)"
+
+if [[ -z "${_entries}" ]]; then
+  printf "yantra: no instances found in registry.\n" >&2
+  exit 1
+fi
+
+_fzf_input=""
+while IFS=$'\t' read -r iid meta status color; do
+  colored_id="$(_color_label "${color}" "${iid}")"
+  _fzf_input+="$(printf "%-30s  %-30s  %s\n" "${colored_id}" "${meta}" "${status}")"$'\n'
+done <<< "${_entries}"
+
+# ── Preview command ───────────────────────────────────────────────────────────
+# Extract instance id from first field, show registry details
+_preview_cmd="echo {} | awk '{print \$1}' | xargs -I% sh -c \"
+  if command -v yukti >/dev/null 2>&1; then
+    yukti info % 2>/dev/null || echo 'instance: %'
+  else
+    echo 'instance: %'
+  fi
+\""
+
+# ── Run fzf ───────────────────────────────────────────────────────────────────
+if ! command -v fzf &>/dev/null; then
+  printf "yantra: fzf not found. Install with: brew install fzf\n" >&2
+  exit 1
+fi
+
+selected="$(printf "%s" "${_fzf_input}" | fzf \
+  --ansi \
+  --height 40% \
+  --border rounded \
+  --prompt "instance > " \
+  --preview "${_preview_cmd}" \
+  --preview-window "right:40%:wrap" \
+  --no-sort \
+  --cycle \
+  2>/dev/null)" || exit 1  # exit 1 on Ctrl-C or Esc
+
+# Extract just the instance id (first word, strip color escapes)
+selected_id="$(printf "%s" "${selected}" | sed 's/\x1b\[[0-9;]*m//g' | awk '{print $1}')"
+
+if [[ -z "${selected_id}" ]]; then
+  exit 1
+fi
+
+printf "%s\n" "${selected_id}"

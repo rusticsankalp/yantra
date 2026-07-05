@@ -1,0 +1,15 @@
+version: 1
+watchers:
+  - id: pod-errors
+    source:
+      type: op
+      id: pod-watch
+    keywords:
+      - pattern: "Failed|Error|OOMKilled"
+        level: error
+        action: [highlight, bubble]
+
+bubble:
+  pane: bubble
+  max_lines: 300
+  format: "[{ts}] [{source}] {level}: {line}"

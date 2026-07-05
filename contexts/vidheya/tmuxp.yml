@@ -1,0 +1,34 @@
+# Vidheya DevOps workspace
+# Note: Remote full-mode — this config runs ON the remote node
+
+before_script: tmux source-file "${YANTRA_HOME}/contexts/_base/tmux.status.conf"
+session_name: "${YANTRA_INSTANCE}"
+
+windows:
+  - window_name: watchers
+    layout: tiled
+    panes:
+      - shell_command: "echo 'pod-watch — run: yukti run pod-watch'; exec zsh"
+        pane_title: pod-watch
+      - shell_command: "echo 'stern — run: yukti run stern-apps'; exec zsh"
+        pane_title: stern
+      - shell_command: "echo 'k9s — run: yukti run k9s'; exec zsh"
+        pane_title: k9s
+      - shell_command: "echo 'bubble pane'; cat"
+        pane_title: bubble
+
+  - window_name: ops
+    layout: main-vertical
+    panes:
+      - shell_command: "exec zsh"
+        pane_title: remote-shell
+      - shell_command: "exec zsh"
+        pane_title: iac
+
+  - window_name: checks
+    layout: even-horizontal
+    panes:
+      - shell_command: "yukti check cluster-check; exec zsh"
+        pane_title: cluster
+      - shell_command: "exec zsh"
+        pane_title: proxmox

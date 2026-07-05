@@ -1,0 +1,17 @@
+before_script: tmux source-file "${YANTRA_HOME}/contexts/_base/tmux.status.conf"
+session_name: "${YANTRA_INSTANCE}"
+windows:
+  - window_name: dev
+    layout: main-vertical
+    panes:
+      - shell_command: "exec zsh"
+        pane_title: editor-shell
+      - shell_command: "echo 'app — run: yukti up'; exec zsh"
+        pane_title: app
+  - window_name: test
+    panes:
+      - shell_command: "exec zsh"
+        pane_title: test-runner
+  - window_name: shell
+    panes:
+      - shell_command: "exec zsh"

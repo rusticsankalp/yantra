@@ -1,0 +1,7 @@
+[tools]
+python = "3.12"
+# go = "1.22"  # uncomment when Go implementation is ready
+
+[env]
+YANTRA_IMPL = "python"
+_.path = ["./bin"]

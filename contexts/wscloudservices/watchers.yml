@@ -1,0 +1,49 @@
+version: 1
+
+watchers:
+  - id: svc1-errors
+    desc: Watch svc1 for errors
+    source:
+      type: service
+      id: svc1
+    keywords:
+      - pattern: "ERROR|FATAL|Exception|NullPointer"
+        level: error
+        action: [highlight, bubble]
+      - pattern: "WARN"
+        level: warn
+        action: [highlight]
+      - pattern: "Started Application|started on port"
+        level: info
+        action: [highlight]
+
+  - id: svc2-errors
+    desc: Watch svc2 for errors
+    source:
+      type: service
+      id: svc2
+    keywords:
+      - pattern: "ERROR|FATAL|Exception|timeout"
+        level: error
+        action: [highlight, bubble]
+      - pattern: "Connection refused"
+        level: error
+        action: [highlight, bubble]
+
+  - id: frontend-errors
+    desc: Watch frontend build errors
+    source:
+      type: service
+      id: frontend
+    keywords:
+      - pattern: "ERROR|error TS|Failed to compile"
+        level: error
+        action: [highlight, bubble]
+      - pattern: "compiled successfully|ready"
+        level: info
+        action: [highlight]
+
+bubble:
+  pane: "bubble"
+  max_lines: 200
+  format: "[{ts}] [{source}] {level}: {line}"

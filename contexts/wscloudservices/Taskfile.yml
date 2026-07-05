@@ -1,0 +1,81 @@
+version: '3'
+
+includes:
+  base:
+    taskfile: "${YANTRA_HOME}/contexts/_base/Taskfile.base.yml"
+    optional: false
+
+vars:
+  SVC1_URL:
+    sh: echo "${SVC1_URL:-http://localhost:8081}"
+
+tasks:
+  start:
+    desc: Start all auto_start services
+    cmds: [yukti up]
+
+  start:backend:
+    desc: Start backend services (svc1 + svc2)
+    cmds: [yukti up --group backend]
+
+  start:frontend:
+    desc: Start frontend dev server
+    cmds: [yukti up frontend]
+
+  stop:
+    desc: Stop all services
+    cmds: [yukti down]
+
+  build:svc1:
+    desc: Rebuild svc1 with cascade restart
+    cmds: [yukti build svc1]
+
+  build:svc2:
+    desc: Rebuild svc2
+    cmds: [yukti build svc2]
+
+  build:all:
+    desc: Rebuild all services
+    cmds: [yukti build all]
+
+  health:
+    desc: Run health checks on all services
+    cmds:
+      - healthcheck http --url "${SVC1_URL}/health" --timeout 5
+      - healthcheck http --url "${SVC2_URL}/health" --timeout 5
+      - healthcheck http --url "${FRONTEND_URL}" --timeout 5
+
+  token:
+    desc: Set auth token (opens browser hint, prompts to paste)
+    cmds:
+      - echo "1. Open ${FRONTEND_URL}/login in your browser"
+      - echo "2. Log in and copy your auth token"
+      - echo ""
+      - 'printf "Paste token: "; read -r TOKEN; yukti set AUTH_TOKEN "Bearer $TOKEN"'
+      - echo "Token saved. Available as AUTH_TOKEN in all panes."
+
+  gql:list:
+    desc: List available predefined GQL queries
+    cmds:
+      - ls "${YANTRA_HOME}/contexts/wscloudservices/gql/"
+
+  gql:run:
+    desc: "Run a predefined GQL query. Usage: task gql:run QUERY=list-users"
+    requires:
+      vars: [QUERY]
+    cmds:
+      - |
+        TOKEN=$(yukti get AUTH_TOKEN 2>/dev/null || echo "")
+        if [ -z "$TOKEN" ]; then
+          echo "No auth token. Run: task token" >&2
+          exit 1
+        fi
+        curl -sf -X POST "${GQL_URL}" \
+          -H "Authorization: $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{\"query\": $(cat "${YANTRA_HOME}/contexts/wscloudservices/gql/{{.QUERY}}.graphql" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}" \
+          | python3 -m json.tool
+
+  logs:
+    desc: View today's audit log for this instance
+    cmds: [yukti log --instance "${YANTRA_INSTANCE}"]

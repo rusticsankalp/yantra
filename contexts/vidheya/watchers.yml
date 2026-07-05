@@ -1,0 +1,33 @@
+version: 1
+
+watchers:
+  - id: app-errors
+    desc: Watch app logs for errors
+    source:
+      type: op
+      id: stern-apps
+    keywords:
+      - pattern: "ERROR|FATAL|panic"
+        level: error
+        action: [highlight, bubble]
+      - pattern: "OOMKilled|CrashLoopBackOff|BackOff"
+        level: critical
+        action: [highlight, bubble]
+
+  - id: k8s-events
+    desc: Watch k8s events for failures
+    source:
+      type: op
+      id: pod-watch
+    keywords:
+      - pattern: "Failed|Error|OOM|Evicted"
+        level: error
+        action: [highlight, bubble]
+      - pattern: "Killing|BackOff"
+        level: warn
+        action: [bubble]
+
+bubble:
+  pane: "bubble"
+  max_lines: 300
+  format: "[{ts}] [{source}] {level}: {line}"

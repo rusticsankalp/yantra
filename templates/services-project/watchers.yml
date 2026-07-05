@@ -1,0 +1,16 @@
+version: 1
+
+watchers:
+  - id: svc1-errors
+    source:
+      type: service
+      id: svc1
+    keywords:
+      - pattern: "ERROR|FATAL|Exception"
+        level: error
+        action: [highlight, bubble]
+
+bubble:
+  pane: bubble
+  max_lines: 200
+  format: "[{ts}] [{source}] {level}: {line}"

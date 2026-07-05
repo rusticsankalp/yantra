@@ -1,0 +1,18 @@
+version: 1
+# Template: replace {{SERVICE_NAME}} with your service names
+
+groups:
+  all: [svc1]  # add more services here
+
+services:
+  - id: svc1
+    desc: "My service"
+    cmd: ./start.sh   # replace with actual start command
+    auto_start: true
+    build:
+      cmd: ./build.sh  # replace with actual build command
+    ready:
+      type: http
+      url: "${SVC1_URL}/health"
+      timeout: 60s
+    groups: [all]

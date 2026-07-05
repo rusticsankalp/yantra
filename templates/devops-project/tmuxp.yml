@@ -1,0 +1,14 @@
+before_script: tmux source-file "${YANTRA_HOME}/contexts/_base/tmux.status.conf"
+session_name: "${YANTRA_INSTANCE}"
+windows:
+  - window_name: watchers
+    layout: tiled
+    panes:
+      - shell_command: "exec zsh"
+        pane_title: pod-watch
+      - shell_command: "echo 'bubble'; cat"
+        pane_title: bubble
+  - window_name: ops
+    panes:
+      - shell_command: "exec zsh"
+        pane_title: shell

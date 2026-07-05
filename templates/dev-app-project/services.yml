@@ -1,0 +1,9 @@
+version: 1
+services:
+  - id: app
+    cmd: npm run dev   # replace with actual dev command
+    auto_start: true
+    ready:
+      type: log_pattern
+      pattern: "ready|listening|started"
+      timeout: 30s

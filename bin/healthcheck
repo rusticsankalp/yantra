@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# yantra/bin/healthcheck — shim that delegates to the active implementation
+# install.sh runs chmod +x on all files in bin/
+
+set -euo pipefail
+
+YANTRA_HOME="${YANTRA_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+case "${YANTRA_IMPL:-python}" in
+  python)
+    exec python3 "${YANTRA_HOME}/impl/python/healthcheck.py" "$@"
+    ;;
+  go)
+    exec "${YANTRA_HOME}/impl/go/healthcheck" "$@"
+    ;;
+  *)
+    printf "yantra: unknown YANTRA_IMPL=%s. Expected 'python' or 'go'.\n" "${YANTRA_IMPL}" >&2
+    exit 1
+    ;;
+esac

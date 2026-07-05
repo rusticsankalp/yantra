@@ -1,0 +1,86 @@
+version: 1
+
+ops:
+  - id: pod-watch
+    kind: watcher
+    desc: Stream k8s pod events
+    cmd: "kubectl get events -A -w --sort-by=.metadata.creationTimestamp"
+    remote: "${REMOTE_HOST}"
+    restart_on_exit: true
+
+  - id: stern-apps
+    kind: watcher
+    desc: Tail all app namespace logs
+    cmd: "stern -n ${K8S_NAMESPACE} ."
+    remote: "${REMOTE_HOST}"
+    restart_on_exit: true
+
+  - id: k9s
+    kind: shell
+    desc: k9s cluster dashboard (interactive)
+    cmd: k9s
+    remote: "${REMOTE_HOST}"
+
+  - id: cluster-check
+    kind: check
+    desc: Node status + unhealthy pods
+    cmd: |
+      echo "=== Nodes ===" && kubectl get nodes -o wide
+      echo "" && echo "=== Unhealthy Pods ===" && kubectl get pods -A | grep -Ev "Running|Completed|Terminating" || echo "All pods healthy"
+    remote: "${REMOTE_HOST}"
+
+  - id: app-check
+    kind: check
+    desc: Application deployment status
+    cmd: "kubectl rollout status deployment -n ${K8S_NAMESPACE}"
+    remote: "${REMOTE_HOST}"
+
+  - id: proxmox-check
+    kind: check
+    desc: Proxmox cluster status
+    cmd: "ssh root@${PROXMOX_HOST} 'pvesh get /cluster/status 2>/dev/null || echo Proxmox check requires root access'"
+
+  - id: remote-shell
+    kind: shell
+    desc: Remote shell on management node
+    cmd: "$SHELL"
+    remote: "${REMOTE_HOST}"
+
+  - id: proxmox-shell
+    kind: shell
+    desc: Proxmox management shell
+    cmd: "ssh -t root@${PROXMOX_HOST}"
+
+  - id: tf-plan
+    kind: task
+    desc: Terraform plan (dry run, safe)
+    cmd: "cd ${REMOTE_REPO}/infra/terraform && terraform init -upgrade -no-color && terraform plan -no-color"
+    remote: "${REMOTE_HOST}"
+    blast_radius: low
+
+  - id: tf-apply
+    kind: task
+    desc: Terraform apply (LIVE CHANGES)
+    cmd: "cd ${REMOTE_REPO}/infra/terraform && terraform apply -auto-approve -no-color"
+    remote: "${REMOTE_HOST}"
+    blast_radius: high
+    confirm: "This will apply Terraform changes to live infrastructure. Continue?"
+
+  - id: ansible-run
+    kind: task
+    desc: Run Ansible playbook
+    cmd: "cd ${REMOTE_REPO}/infra/ansible && ansible-playbook playbooks/${PLAYBOOK}.yml -v"
+    remote: "${REMOTE_HOST}"
+    blast_radius: high
+    confirm: "Run Ansible playbook '${PLAYBOOK}' against live hosts. Continue?"
+    vars_required: [PLAYBOOK]
+
+  - id: rollout-restart
+    kind: task
+    desc: Rollout restart a k8s deployment
+    cmd: |
+      kubectl rollout restart deployment/${DEPLOY} -n ${NS}
+      kubectl rollout status deployment/${DEPLOY} -n ${NS}
+    remote: "${REMOTE_HOST}"
+    blast_radius: medium
+    vars_required: [DEPLOY, NS]

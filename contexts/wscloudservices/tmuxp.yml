@@ -1,0 +1,34 @@
+# WSCloudServices workspace layout
+# Env vars are resolved at session creation time from YANTRA_* vars
+
+before_script: tmux source-file "${YANTRA_HOME}/contexts/_base/tmux.status.conf"
+session_name: "${YANTRA_INSTANCE}"
+
+windows:
+  - window_name: services
+    layout: tiled
+    panes:
+      - shell_command: "echo 'svc1 — run: yukti up svc1'; exec zsh"
+        pane_title: svc1
+      - shell_command: "echo 'svc2 — run: yukti up svc2'; exec zsh"
+        pane_title: svc2
+      - shell_command: "echo 'bubble pane — logs appear here'; cat"
+        pane_title: bubble
+
+  - window_name: frontend
+    panes:
+      - shell_command: "echo 'frontend — run: yukti up frontend'; exec zsh"
+        pane_title: frontend
+
+  - window_name: queries
+    layout: even-horizontal
+    panes:
+      - shell_command: "echo 'GQL / curl — AUTH_TOKEN auto-available after: yukti set AUTH_TOKEN <paste>'; exec zsh"
+        pane_title: gql
+      - shell_command: "exec zsh"
+        pane_title: health
+
+  - window_name: shell
+    panes:
+      - shell_command: "exec zsh"
+        pane_title: shell

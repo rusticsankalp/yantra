@@ -1,0 +1,15 @@
+version: '3'
+includes:
+  base:
+    taskfile: "${YANTRA_HOME}/contexts/_base/Taskfile.base.yml"
+    optional: false
+tasks:
+  start:
+    desc: Start all services
+    cmds: [yukti up]
+  stop:
+    desc: Stop all services
+    cmds: [yukti down]
+  build:
+    desc: Rebuild services
+    cmds: [yukti build all]

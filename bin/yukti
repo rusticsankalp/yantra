@@ -1,0 +1,777 @@
+#!/usr/bin/env python3
+"""yukti — yantra command runner.
+
+Main CLI entry point. Uses stdlib only (argparse) — no third-party deps at
+the top level so it works before `yukti install` is run.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Env / path helpers
+# ---------------------------------------------------------------------------
+
+def get_yantra_home():
+    """Resolve yantra home from this script's location (bin/../)."""
+    return str(Path(__file__).parent.parent.resolve())
+
+
+def get_yantra_config():
+    """Return config dir from env or ~/.config/yantra."""
+    return os.environ.get("YANTRA_CONFIG", str(Path.home() / ".config" / "yantra"))
+
+
+def get_registry_path():
+    return str(Path(get_yantra_config()) / "registry.yml")
+
+
+# ---------------------------------------------------------------------------
+# Registry helpers (inline to avoid hard dep on registry.py at startup)
+# ---------------------------------------------------------------------------
+
+def load_registry():
+    """Parse registry.yml, return dict. Empty registry on any error."""
+    try:
+        import yaml
+    except ImportError:
+        print("pyyaml not installed — run: yukti install", file=sys.stderr)
+        return {"instances": {}}
+
+    path = get_registry_path()
+    if not Path(path).exists():
+        return {"instances": {}}
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+        return data if "instances" in data else {"instances": {}}
+    except Exception as e:
+        print(f"Error parsing registry.yml: {e}", file=sys.stderr)
+        return {"instances": {}}
+
+
+def get_instance(name, registry=None):
+    """Return instance config dict or None."""
+    if registry is None:
+        registry = load_registry()
+    return registry.get("instances", {}).get(name)
+
+
+def get_running_sessions():
+    """Return set of active tmux session names."""
+    try:
+        r = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            return set(r.stdout.strip().splitlines())
+    except FileNotFoundError:
+        pass
+    return set()
+
+
+def load_context_env(context_type, yantra_home=None):
+    """Read contexts/<type>/context.env and return as dict."""
+    if yantra_home is None:
+        yantra_home = get_yantra_home()
+    env_path = Path(yantra_home) / "contexts" / context_type / "context.env"
+    env = {}
+    if env_path.exists():
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    env[k.strip()] = v.strip()
+    return env
+
+
+def read_services_yml(context_type, yantra_home=None):
+    """Parse contexts/<type>/services.yml."""
+    try:
+        import yaml
+    except ImportError:
+        return {}
+    if yantra_home is None:
+        yantra_home = get_yantra_home()
+    path = Path(yantra_home) / "contexts" / context_type / "services.yml"
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+        return data.get("services", data)
+    except Exception as e:
+        print(f"Error parsing services.yml: {e}", file=sys.stderr)
+        return {}
+
+
+def read_ops_yml(context_type, yantra_home=None):
+    """Parse contexts/<type>/ops.yml."""
+    try:
+        import yaml
+    except ImportError:
+        return {}
+    if yantra_home is None:
+        yantra_home = get_yantra_home()
+    path = Path(yantra_home) / "contexts" / context_type / "ops.yml"
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+    except Exception as e:
+        print(f"Error parsing ops.yml: {e}", file=sys.stderr)
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Rich availability
+# ---------------------------------------------------------------------------
+
+def _rich_available():
+    try:
+        import rich  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+# Color background map for ls display
+COLOR_BG = {
+    "green": "#005f00", "yellow": "#875f00", "blue": "#00005f",
+    "red": "#5f0000", "cyan": "#005f5f", "magenta": "#5f005f", "default": "#262626",
+}
+
+
+# ---------------------------------------------------------------------------
+# Delegation helpers
+# ---------------------------------------------------------------------------
+
+def _run_impl(script_name, *extra_args):
+    """Invoke an impl/python/<script> and replace process (exit with its code)."""
+    script = str(Path(get_yantra_home()) / "impl" / "python" / script_name)
+    cmd = ["python3", script] + list(extra_args)
+    result = subprocess.run(cmd)
+    sys.exit(result.returncode)
+
+
+def _delegate_orchestrate(subcommand, extra_args):
+    _run_impl("orchestrate.py", subcommand, *extra_args)
+
+
+def _delegate_audit(subcommand, extra_args):
+    _run_impl("audit.py", subcommand, *extra_args)
+
+
+# ---------------------------------------------------------------------------
+# Require active instance — exits if not set
+# ---------------------------------------------------------------------------
+
+def _active_instance(context_needed=False):
+    instance_name = os.environ.get("YANTRA_INSTANCE")
+    if not instance_name:
+        print("No active instance — set YANTRA_INSTANCE or run: yukti go", file=sys.stderr)
+        sys.exit(1)
+    registry = load_registry()
+    instance = get_instance(instance_name, registry)
+    if not instance:
+        print(f"Instance '{instance_name}' not in registry.yml", file=sys.stderr)
+        sys.exit(1)
+    if context_needed:
+        return instance_name, instance, instance.get("context", "")
+    return instance_name, instance
+
+
+# ---------------------------------------------------------------------------
+# Command handlers
+# ---------------------------------------------------------------------------
+
+def cmd_go(args):
+    """Activate / attach to an instance."""
+    instance_name = args.instance
+
+    if not instance_name:
+        if args.last:
+            instance_name = os.environ.get("YANTRA_INSTANCE")
+            if not instance_name:
+                print("No last instance (YANTRA_INSTANCE not set)", file=sys.stderr)
+                sys.exit(1)
+        else:
+            # Pick with fzf, falling back to manual prompt
+            registry = load_registry()
+            choices = list(registry.get("instances", {}).keys())
+            if not choices:
+                print("No instances registered. Run: yukti add <name> --context <type>", file=sys.stderr)
+                sys.exit(1)
+            try:
+                r = subprocess.run(
+                    ["fzf", "--prompt=go> "],
+                    input="\n".join(choices),
+                    capture_output=True, text=True,
+                )
+                if r.returncode != 0 or not r.stdout.strip():
+                    sys.exit(0)
+                instance_name = r.stdout.strip()
+            except FileNotFoundError:
+                print("Available instances:", file=sys.stderr)
+                for c in choices:
+                    print(f"  {c}", file=sys.stderr)
+                print("\nUsage: yukti go <instance>", file=sys.stderr)
+                sys.exit(1)
+
+    registry = load_registry()
+    instance = get_instance(instance_name, registry)
+    if not instance:
+        print(f"Instance '{instance_name}' not found in registry", file=sys.stderr)
+        sys.exit(1)
+
+    running = get_running_sessions()
+
+    if instance_name in running:
+        os.execvp("tmux", ["tmux", "attach-session", "-t", instance_name])
+    else:
+        yantra_home = get_yantra_home()
+        context_type = instance.get("context", "")
+        session_yml = Path(yantra_home) / "contexts" / context_type / "session.yml"
+        if session_yml.exists():
+            env = os.environ.copy()
+            env["YANTRA_INSTANCE"] = instance_name
+            env["YANTRA_HOME"] = yantra_home
+            env["YANTRA_CONTEXT_TYPE"] = context_type
+            os.execvpe("tmuxp", ["tmuxp", "load", str(session_yml)], env)
+        else:
+            # Bare tmux session as fallback
+            os.execvp("tmux", ["tmux", "new-session", "-s", instance_name])
+
+
+def cmd_ls(args):
+    """List all registered instances with running status."""
+    registry = load_registry()
+    instances = registry.get("instances", {})
+    running = get_running_sessions()
+
+    if args.json:
+        out = {}
+        for name, cfg in instances.items():
+            out[name] = dict(cfg)
+            out[name]["status"] = "running" if name in running else "stopped"
+        print(json.dumps({"instances": out}))
+        return
+
+    if _rich_available():
+        from rich.console import Console
+        from rich.table import Table
+
+        console = Console()
+        table = Table(show_header=True, header_style="bold", box=None, pad_edge=False, min_width=60)
+        table.add_column("Instance", min_width=16)
+        table.add_column("Context", min_width=20)
+        table.add_column("Label", min_width=10)
+        table.add_column("Status", min_width=12)
+        table.add_column("Color")
+
+        for name, cfg in instances.items():
+            status = "[green]● running[/green]" if name in running else "○ stopped"
+            table.add_row(
+                name,
+                cfg.get("context", ""),
+                cfg.get("label", ""),
+                status,
+                cfg.get("color", "default"),
+            )
+        console.print(table)
+    else:
+        print(f"{'Instance':<18} {'Context':<22} {'Label':<12} {'Status':<12} Color")
+        print("─" * 72)
+        for name, cfg in instances.items():
+            status = "● running" if name in running else "○ stopped"
+            print(f"{name:<18} {cfg.get('context',''):<22} {cfg.get('label',''):<12} {status:<12} {cfg.get('color','default')}")
+
+
+def cmd_where(args):
+    """Show active instance info."""
+    instance_name = os.environ.get("YANTRA_INSTANCE")
+    if not instance_name:
+        if not args.short:
+            print("No active instance (YANTRA_INSTANCE not set)", file=sys.stderr)
+        sys.exit(1)
+
+    if args.short:
+        print(instance_name)
+        return
+
+    registry = load_registry()
+    instance = get_instance(instance_name, registry)
+    if not instance:
+        print(f"Instance '{instance_name}' not in registry", file=sys.stderr)
+        sys.exit(1)
+
+    running = get_running_sessions()
+    status = "running" if instance_name in running else "stopped"
+
+    print(f"Instance:  {instance_name}")
+    print(f"Context:   {instance.get('context', '')}")
+    print(f"Label:     {instance.get('label', '')}")
+    print(f"Status:    {status}")
+    print(f"Color:     {instance.get('color', 'default')}")
+    if "local_path" in instance:
+        print(f"Path:      {instance['local_path']}")
+    if "remote" in instance:
+        r = instance["remote"]
+        print(f"Remote:    {r.get('host', '')}  mode={r.get('mode', 'full')}")
+
+
+def cmd_up(args):
+    instance_name, instance, context_type = _active_instance(context_needed=True)
+    extra = ["--context", context_type]
+    if args.target:
+        extra += ["--service", args.target]
+    _delegate_orchestrate("start", extra)
+
+
+def cmd_down(args):
+    instance_name, instance, context_type = _active_instance(context_needed=True)
+    extra = ["--context", context_type]
+    target = args.target or "all"
+    if target == "all":
+        extra.append("--all")
+    else:
+        extra += ["--service", target]
+    _delegate_orchestrate("stop", extra)
+
+
+def cmd_restart(args):
+    instance_name, instance, context_type = _active_instance(context_needed=True)
+    extra = ["--context", context_type]
+    if args.target:
+        extra += ["--service", args.target]
+    _delegate_orchestrate("restart", extra)
+
+
+def cmd_build(args):
+    instance_name, instance, context_type = _active_instance(context_needed=True)
+    extra = ["--context", context_type]
+    if args.target:
+        extra += ["--service", args.target]
+    _delegate_orchestrate("build", extra)
+
+
+def cmd_ps(args):
+    instance_name, instance, context_type = _active_instance(context_needed=True)
+    extra = ["--context", context_type]
+    if args.json:
+        extra.append("--json")
+    _delegate_orchestrate("status", extra)
+
+
+def cmd_run(args):
+    """Execute an operation from ops.yml."""
+    instance_name, instance, context_type = _active_instance(context_needed=True)
+    ops = read_ops_yml(context_type)
+    op = ops.get("ops", {}).get(args.op)
+    if not op:
+        print(f"Op '{args.op}' not found in ops.yml", file=sys.stderr)
+        avail = list(ops.get("ops", {}).keys())
+        if avail:
+            print(f"Available: {', '.join(avail)}", file=sys.stderr)
+        sys.exit(2)
+
+    blast = op.get("blast_radius")
+    if blast == "high":
+        desc = op.get("description", "(no description)")
+        print(f"[WARNING] blast_radius:high  —  {desc}")
+        ans = input("Continue? [y/N] ").strip().lower()
+        if ans != "y":
+            print("Aborted.")
+            sys.exit(0)
+
+    # Variable substitution from --var KEY=VAL
+    var_map = {}
+    for kv in (args.var or []):
+        if "=" in kv:
+            k, _, v = kv.partition("=")
+            var_map[k.strip()] = v.strip()
+
+    cmd_str = op.get("cmd", "")
+    for k, v in var_map.items():
+        cmd_str = cmd_str.replace(f"${{{k}}}", v).replace(f"${k}", v)
+
+    # Inherit instance env vars
+    env = os.environ.copy()
+    env.update(instance.get("env", {}))
+
+    result = subprocess.run(cmd_str, shell=True, env=env)
+    sys.exit(result.returncode)
+
+
+def cmd_check(args):
+    """Run a named check (or all checks) from ops.yml."""
+    instance_name, instance, context_type = _active_instance(context_needed=True)
+    ops = read_ops_yml(context_type)
+    checks = ops.get("checks", {})
+
+    if args.op:
+        check = checks.get(args.op)
+        if not check:
+            print(f"Check '{args.op}' not found", file=sys.stderr)
+            sys.exit(2)
+        to_run = {args.op: check}
+    else:
+        to_run = checks
+
+    if not to_run:
+        print("No checks defined in ops.yml", file=sys.stderr)
+        sys.exit(0)
+
+    all_ok = True
+    for name, check in to_run.items():
+        cmd_str = check.get("cmd", "")
+        result = subprocess.run(cmd_str, shell=True, capture_output=True, text=True)
+        ok = result.returncode == 0
+        if not ok:
+            all_ok = False
+        symbol = "✓" if ok else "✗"
+        print(f"  {symbol}  {name}: {check.get('description', cmd_str)}")
+        if not ok and result.stdout.strip():
+            print(f"     {result.stdout.strip()}")
+
+    sys.exit(0 if all_ok else 1)
+
+
+def cmd_log(args):
+    instance_name = args.instance or os.environ.get("YANTRA_INSTANCE")
+    if not instance_name:
+        print("No instance specified (-i / --instance) and YANTRA_INSTANCE not set", file=sys.stderr)
+        sys.exit(1)
+
+    extra = ["--instance", instance_name]
+    if args.since:
+        extra += ["--since", args.since]
+    if args.type:
+        extra += ["--type", args.type]
+    if args.search:
+        extra += ["--search", args.search]
+    if args.blast:
+        extra += ["--blast", args.blast]
+    if args.exit is not None:
+        extra += ["--exit", str(args.exit)]
+    if args.annotated:
+        extra.append("--annotated")
+    if args.json:
+        extra.append("--json")
+    _delegate_audit("query", extra)
+
+
+def cmd_note(args):
+    instance_name, _ = _active_instance()
+    _delegate_audit("note", ["--instance", instance_name, "--text", args.text])
+
+
+def cmd_set(args):
+    """Write KEY=value to the session env file and propagate to tmux."""
+    instance_name, _ = _active_instance()
+    config = get_yantra_config()
+    sessions_dir = Path(config) / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    env_file = sessions_dir / f"{instance_name}.env"
+
+    existing = {}
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    existing[k.strip()] = v.strip()
+
+    existing[args.key] = args.value
+    with open(env_file, "w") as f:
+        for k, v in existing.items():
+            f.write(f"{k}={v}\n")
+
+    running = get_running_sessions()
+    if instance_name in running:
+        subprocess.run(
+            ["tmux", "setenv", "-t", instance_name, args.key, args.value],
+            capture_output=True,
+        )
+
+    print(f"Set {args.key}={args.value}")
+
+
+def cmd_get(args):
+    """Read a KEY from the session env file."""
+    instance_name, _ = _active_instance()
+    env_file = Path(get_yantra_config()) / "sessions" / f"{instance_name}.env"
+    if not env_file.exists():
+        print(f"No session env file for '{instance_name}'", file=sys.stderr)
+        sys.exit(1)
+
+    with open(env_file) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                if k.strip() == args.key:
+                    print(v.strip())
+                    return
+
+    print(f"Key '{args.key}' not set for instance '{instance_name}'", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_add(args):
+    """Interactive wizard: write a new instance entry to registry.yml."""
+    try:
+        import yaml
+    except ImportError:
+        print("pyyaml required — run: yukti install", file=sys.stderr)
+        sys.exit(2)
+
+    config = get_yantra_config()
+    registry_path = Path(config) / "registry.yml"
+    registry = load_registry()
+
+    if args.name in registry.get("instances", {}):
+        print(f"Instance '{args.name}' already exists", file=sys.stderr)
+        sys.exit(1)
+
+    instance = {
+        "context": args.context,
+        "label": args.label or args.name,
+        "color": args.color or "default",
+    }
+    if args.path:
+        instance["local_path"] = args.path
+    if args.remote_host:
+        instance["remote"] = {
+            "host": args.remote_host,
+            "mode": args.remote_mode or "full",
+        }
+        if args.remote_path:
+            instance["remote"]["path"] = args.remote_path
+
+    registry.setdefault("instances", {})[args.name] = instance
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(registry_path, "w") as f:
+        yaml.dump(registry, f, default_flow_style=False, sort_keys=False)
+
+    print(f"Added instance '{args.name}'  context={args.context}")
+
+
+def cmd_init(args):
+    """Create config dirs, empty registry, check required tools."""
+    try:
+        import yaml
+    except ImportError:
+        print("pyyaml required — run: pip3 install pyyaml", file=sys.stderr)
+        sys.exit(2)
+
+    config = get_yantra_config()
+    for d in [
+        Path(config),
+        Path(config) / "sessions",
+        Path(config) / "audit",
+    ]:
+        d.mkdir(parents=True, exist_ok=True)
+        print(f"  ok  {d}")
+
+    registry_path = Path(config) / "registry.yml"
+    if not registry_path.exists():
+        with open(registry_path, "w") as f:
+            yaml.dump({"instances": {}}, f)
+        print(f"  created  {registry_path}")
+    else:
+        print(f"  exists   {registry_path}")
+
+    print("\nTool check:")
+    for tool in ["tmux", "fzf", "tmuxp", "python3"]:
+        found = subprocess.run(["which", tool], capture_output=True).returncode == 0
+        print(f"  {'✓' if found else '✗'}  {tool}")
+
+    print("\nyantra init complete.")
+
+
+def cmd_install(args):
+    """pip install requirements.txt and chmod bin/yukti."""
+    yantra_home = get_yantra_home()
+    req = Path(yantra_home) / "impl" / "python" / "requirements.txt"
+    if not req.exists():
+        print(f"requirements.txt not found: {req}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.remote:
+        # TODO: SSH install on remote host
+        print(f"TODO: remote install on {args.remote}")
+        sys.exit(1)
+
+    result = subprocess.run(["pip3", "install", "-r", str(req)])
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+    yukti_path = Path(yantra_home) / "bin" / "yukti"
+    if yukti_path.exists():
+        yukti_path.chmod(0o755)
+        print(f"  chmod +x {yukti_path}")
+
+    print("Install complete.")
+
+
+def cmd_version(args):
+    version_file = Path(get_yantra_home()) / "VERSION"
+    if version_file.exists():
+        print(version_file.read_text().strip())
+    else:
+        print("yantra 0.1.0-dev")
+
+
+# ---------------------------------------------------------------------------
+# Argument parser
+# ---------------------------------------------------------------------------
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="yukti",
+        description="yukti — yantra command runner",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = parser.add_subparsers(dest="command", metavar="<command>")
+    sub.required = True
+
+    # go
+    p = sub.add_parser("go", help="Activate / attach to an instance")
+    p.add_argument("instance", nargs="?", help="Instance name (fzf picker if omitted)")
+    p.add_argument("--last", action="store_true", help="Re-attach to last active instance")
+
+    # ls
+    p = sub.add_parser("ls", help="List all registered instances")
+    p.add_argument("--json", action="store_true")
+
+    # where
+    p = sub.add_parser("where", help="Show current active instance")
+    p.add_argument("--short", action="store_true", help="Print instance name only")
+
+    # up
+    p = sub.add_parser("up", help="Start services (default: auto_start)")
+    p.add_argument("target", nargs="?", help="Service id, group name, or 'all'")
+
+    # down
+    p = sub.add_parser("down", help="Stop services (default: all)")
+    p.add_argument("target", nargs="?", default="all", help="Service id, group, or 'all'")
+
+    # restart
+    p = sub.add_parser("restart", help="Restart services")
+    p.add_argument("target", nargs="?")
+
+    # build
+    p = sub.add_parser("build", help="Build and restart a service")
+    p.add_argument("target", nargs="?", help="Service id")
+
+    # ps
+    p = sub.add_parser("ps", help="Show service process status")
+    p.add_argument("--json", action="store_true")
+
+    # run
+    p = sub.add_parser("run", help="Execute an operation from ops.yml")
+    p.add_argument("op", help="Op name")
+    p.add_argument("--var", action="append", metavar="KEY=VAL", help="Variable substitution (repeatable)")
+
+    # check
+    p = sub.add_parser("check", help="Run checks from ops.yml")
+    p.add_argument("op", nargs="?", help="Check name (default: all)")
+
+    # log
+    p = sub.add_parser("log", help="Query audit log")
+    p.add_argument("-i", "--instance", help="Instance (default: YANTRA_INSTANCE)")
+    p.add_argument("--since", help="Time filter: 2h, 1d, YYYY-MM-DD")
+    p.add_argument("--type", choices=["manual", "auto", "system"])
+    p.add_argument("--search", help="Substring filter on cmd")
+    p.add_argument("--blast", choices=["high", "medium", "low"])
+    p.add_argument("--exit", type=int, dest="exit", metavar="CODE", help="Filter by exit code")
+    p.add_argument("--annotated", action="store_true", help="Only records with notes")
+    p.add_argument("--json", action="store_true")
+
+    # note
+    p = sub.add_parser("note", help="Annotate last audit record")
+    p.add_argument("text")
+
+    # set
+    p = sub.add_parser("set", help="Set session env var")
+    p.add_argument("key", metavar="KEY")
+    p.add_argument("value", metavar="VALUE")
+
+    # get
+    p = sub.add_parser("get", help="Get session env var")
+    p.add_argument("key", metavar="KEY")
+
+    # add
+    p = sub.add_parser("add", help="Register a new instance")
+    p.add_argument("name")
+    p.add_argument("--context", required=True, help="Context type (name of dir under contexts/)")
+    p.add_argument("--path", help="Local project path")
+    p.add_argument("--remote-host", metavar="USER@HOST")
+    p.add_argument("--remote-path", metavar="PATH")
+    p.add_argument("--remote-mode", choices=["thin", "full"], default="full")
+    p.add_argument("--label", help="Display label (default: instance name)")
+    p.add_argument(
+        "--color",
+        choices=["green", "yellow", "blue", "red", "cyan", "magenta", "orange", "default"],
+        default="default",
+    )
+
+    # init
+    sub.add_parser("init", help="Create config dirs and empty registry")
+
+    # install
+    p = sub.add_parser("install", help="pip install requirements and chmod scripts")
+    p.add_argument("--remote", metavar="HOST")
+    p.add_argument("--thin", action="store_true")
+    p.add_argument("--full", action="store_true")
+
+    # version
+    sub.add_parser("version", help="Print yantra version")
+
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+DISPATCH = {
+    "go": cmd_go,
+    "ls": cmd_ls,
+    "where": cmd_where,
+    "up": cmd_up,
+    "down": cmd_down,
+    "restart": cmd_restart,
+    "build": cmd_build,
+    "ps": cmd_ps,
+    "run": cmd_run,
+    "check": cmd_check,
+    "log": cmd_log,
+    "note": cmd_note,
+    "set": cmd_set,
+    "get": cmd_get,
+    "add": cmd_add,
+    "init": cmd_init,
+    "install": cmd_install,
+    "version": cmd_version,
+}
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    DISPATCH[args.command](args)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,60 @@
+version: '3'
+# Base tasks — included by all context Taskfiles
+# Usage in context Taskfile: includes: { base: { taskfile: "${YANTRA_HOME}/contexts/_base/Taskfile.base.yml" } }
+
+tasks:
+  where:
+    desc: Show current context and instance
+    silent: true
+    cmds:
+      - yukti where
+
+  ps:
+    desc: Show running services/ops
+    silent: true
+    cmds:
+      - yukti ps
+
+  status:
+    desc: Full status of current instance
+    silent: true
+    cmds:
+      - yukti where
+      - echo "---"
+      - yukti ps
+
+  log:
+    desc: Show today's audit log
+    silent: true
+    cmds:
+      - yukti log {{.CLI_ARGS}}
+
+  note:
+    desc: Annotate last audit record
+    silent: true
+    requires:
+      vars: [CLI_ARGS]
+    cmds:
+      - yukti note "{{.CLI_ARGS}}"
+
+  set:
+    desc: "Write to session KV store. Usage: task set KEY=value"
+    silent: true
+    requires:
+      vars: [KEY, VALUE]
+    cmds:
+      - yukti set {{.KEY}} {{.VALUE}}
+
+  get:
+    desc: "Read from session KV store. Usage: task get KEY=mykey"
+    silent: true
+    requires:
+      vars: [KEY]
+    cmds:
+      - yukti get {{.KEY}}
+
+  ls:
+    desc: List all registered instances
+    silent: true
+    cmds:
+      - yukti ls

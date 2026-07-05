@@ -1,0 +1,10 @@
+version: '3'
+includes:
+  base:
+    taskfile: "${YANTRA_HOME}/contexts/_base/Taskfile.base.yml"
+    optional: false
+tasks:
+  check:
+    cmds: [yukti check cluster-check]
+  watch:
+    cmds: [yukti run pod-watch]

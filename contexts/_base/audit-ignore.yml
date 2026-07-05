@@ -1,0 +1,24 @@
+version: 1
+# Commands matching these patterns are NOT recorded in the audit log
+ignore:
+  - "^ls"
+  - "^ll"
+  - "^la"
+  - "^cd "
+  - "^cd$"
+  - "^pwd$"
+  - "^cat "
+  - "^echo "
+  - "^clear$"
+  - "^history"
+  - "^exit$"
+  - "^man "
+  - "^which "
+  - "^yukti log"
+  - "^yukti get "
+  - "^yukti where"
+  - "^yukti ps"
+  - "^task where"
+  - "^task status"
+  - "^#"        # bare comments
+  - "^$"        # empty

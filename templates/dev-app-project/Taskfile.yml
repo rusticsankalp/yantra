@@ -1,0 +1,12 @@
+version: '3'
+includes:
+  base:
+    taskfile: "${YANTRA_HOME}/contexts/_base/Taskfile.base.yml"
+    optional: false
+tasks:
+  dev:
+    cmds: [yukti up]
+  test:
+    cmds: [npm test]  # replace with actual test command
+  test:watch:
+    cmds: [npm test -- --watch]

@@ -1,0 +1,44 @@
+version: 1
+
+groups:
+  backend: [svc1, svc2]
+  all: [svc1, svc2, frontend]
+
+services:
+  - id: svc1
+    desc: "Backend service 1"
+    cmd: ./run.sh svc1
+    auto_start: true
+    build:
+      cmd: ./run.sh build svc1
+    ready:
+      type: http
+      url: "${SVC1_URL}/health"
+      expect: '"status"'
+      timeout: 60s
+    groups: [backend, all]
+
+  - id: svc2
+    desc: "Backend service 2"
+    cmd: ./run.sh svc2
+    depends_on: [svc1]
+    auto_start: true
+    build:
+      cmd: ./run.sh build svc2
+    ready:
+      type: port
+      host: localhost
+      port: "${SVC2_PORT}"
+      timeout: 30s
+    groups: [backend, all]
+
+  - id: frontend
+    desc: "Frontend dev server"
+    cmd: npm run dev
+    depends_on: [svc1, svc2]
+    auto_start: false
+    ready:
+      type: log_pattern
+      pattern: "ready on|Local:"
+      timeout: 30s
+    groups: [all]

@@ -1,0 +1,22 @@
+version: 1
+# Base patterns — merged with context-specific watchers
+# These patterns are checked for all services/ops
+
+base_patterns:
+  - pattern: "OOMKilled|OutOfMemoryError"
+    level: critical
+    action: [highlight, bubble]
+    summary: "Out of memory event"
+
+  - pattern: "panic:|SIGSEGV|segfault"
+    level: critical
+    action: [highlight, bubble]
+    summary: "Process crash"
+
+  - pattern: "Connection refused|ECONNREFUSED"
+    level: error
+    action: [highlight, bubble]
+
+  - pattern: "FATAL|fatal error"
+    level: critical
+    action: [highlight, bubble]
