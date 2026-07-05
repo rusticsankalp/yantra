@@ -1,0 +1,2 @@
+- Automate install path
+- Create an exit command "yukti exit demo"
