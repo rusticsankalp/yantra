@@ -5,3 +5,6 @@ sudo apt update && sudo apt install python3-full -y
 python3 -m venv .venv
 source .venv/bin/activate
   pip3 install tmuxp
+
+
+  Set-VMFirmware -VMName "Your_VM_Name" -SecureBootTemplate "MicrosoftUEFICertificateAuthority"
